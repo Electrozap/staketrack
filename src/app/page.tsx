@@ -19,7 +19,7 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-export default function StakeTrackApp() {
+export default function MoneyBallApp() {
   const [activeView, setActiveView] = useState("dashboard");
   const [theme, setTheme] = useState("dark");
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -223,9 +223,9 @@ export default function StakeTrackApp() {
     <div className="app">
       <aside className="sidebar">
         <div className="sidebar-header">
-          <div className="avatar">ST</div>
+          <div className="avatar">MB</div>
           <div>
-            <div className="brand-name">StakeTrack</div>
+            <div className="brand-name">MoneyBall</div>
             <div className="brand-sub">Sports Wager Tracker</div>
           </div>
         </div>

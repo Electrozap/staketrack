@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { DM_Sans } from "next/font/google";
+import { DM_Sans, Instrument_Serif } from "next/font/google";
 import "./globals.css";
 
 const dmSans = DM_Sans({
@@ -7,19 +7,25 @@ const dmSans = DM_Sans({
   variable: "--font-dm-sans",
 });
 
+const instrumentSerif = Instrument_Serif({
+  weight: "400",
+  subsets: ["latin"],
+  variable: "--font-instrument-serif",
+});
+
 export const metadata: Metadata = {
-  title: "StakeTrack - Private Sports Wager Tracking",
+  title: "MoneyBall - Private Sports Wager Tracking",
   description:
     "The private ledger for sports wagers between friends. Track bets, resolve winners, and always know exactly who owes whom.",
   openGraph: {
-    title: "StakeTrack - Private Sports Wager Tracking",
+    title: "MoneyBall - Private Sports Wager Tracking",
     description:
       "The private ledger for sports wagers between friends. Track bets, resolve winners, and always know exactly who owes whom.",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "StakeTrack - Private Sports Wager Tracking",
+    title: "MoneyBall - Private Sports Wager Tracking",
     description:
       "The private ledger for sports wagers between friends. Track bets, resolve winners, and always know exactly who owes whom.",
   },
@@ -37,7 +43,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" data-theme="dark" className={`${dmSans.variable} antialiased`}>
+    <html lang="en" data-theme="dark" className={`${dmSans.variable} ${instrumentSerif.variable} antialiased`}>
       <body className="min-h-screen">{children}</body>
     </html>
   );
