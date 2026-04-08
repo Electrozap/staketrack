@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { LayoutDashboard, List, Trophy, Sun, Moon, Plus, X, UserPlus, IndianRupee } from 'lucide-react';
+import { LayoutDashboard, List, Sun, Moon, Plus, X, UserPlus, IndianRupee, CreditCard } from 'lucide-react';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -17,14 +17,15 @@ export default function StakeTrackApp() {
   const [user, setUser] = useState<any>(null);
   const [bets, setBets] = useState<any[]>([]);
   const [settlements, setSettlements] = useState<any[]>([]);
-  const [leaderboard, setLeaderboard] = useState<any[]>([]);
+
+  // Replaced Leaderboard with Individual Balances
+  const [balances, setBalances] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [formData, setFormData] = useState({ title: '', sport: 'IPL', stake: '' });
   const [newParticipants, setNewParticipants] = useState<string[]>([]);
   const [newParticipantInput, setNewParticipantInput] = useState('');
 
-  // Settlement state
   const [settleData, setSettleData] = useState({ payee: '', amount: '' });
 
   useEffect(() => {
@@ -59,41 +60,60 @@ export default function StakeTrackApp() {
   };
 
   const fetchSettlements = async () => {
-    const { data, error } = await supabase.from('settlements').select('*');
+    // Only fetch settlements where the user is either the payer or the payee
+    const myName = user?.user_metadata?.full_name;
+    if (!myName) return;
+    const { data, error } = await supabase
+      .from('settlements')
+      .select('*')
+      .or(`payer.eq."${myName}",payee.eq."${myName}"`);
+
     if (!error && data) setSettlements(data);
   };
 
-  // The Updated Ledger Engine
+  // NEW: The 1-on-1 Debt Graph Engine
   useEffect(() => {
-    const stats: Record<string, { net: number, wins: number, losses: number }> = {};
+    const myName = user?.user_metadata?.full_name;
+    if (!myName) return;
 
-    // 1. Calculate Bet Winnings/Losses
+    const friendBalances: Record<string, number> = {};
+
+    // 1. Calculate Debts from Bets
     bets.forEach(b => {
-      if (b.status !== 'won' || !b.participants) return;
-      const winAmount = b.stake * (b.participants.length - 1);
-      b.participants.forEach((p: string) => {
-        if (!stats[p]) stats[p] = { net: 0, wins: 0, losses: 0 };
-        if (p === b.winner) {
-          stats[p].net += winAmount;
-          stats[p].wins += 1;
-        } else {
-          stats[p].net -= b.stake;
-          stats[p].losses += 1;
-        }
-      });
+      if (b.status !== 'won' || !b.participants || !b.participants.includes(myName)) return;
+
+      if (b.winner === myName) {
+        // I won. Everyone else in the bet owes me the stake.
+        b.participants.forEach((p: string) => {
+          if (p !== myName) {
+            friendBalances[p] = (friendBalances[p] || 0) + b.stake;
+          }
+        });
+      } else {
+        // Someone else won. I owe the winner the stake.
+        friendBalances[b.winner] = (friendBalances[b.winner] || 0) - b.stake;
+      }
     });
 
-    // 2. Apply Settlements (Payments)
+    // 2. Apply Payments (Settlements)
     settlements.forEach(s => {
-      if (!stats[s.payer]) stats[s.payer] = { net: 0, wins: 0, losses: 0 };
-      if (!stats[s.payee]) stats[s.payee] = { net: 0, wins: 0, losses: 0 };
-      stats[s.payer].net += s.amount; // Payer's net goes UP (debt cleared)
-      stats[s.payee].net -= s.amount; // Payee's net goes DOWN (received cash)
+      if (s.payer === myName) {
+        // I paid them. My balance goes UP (I owe them less, or they owe me more).
+        friendBalances[s.payee] = (friendBalances[s.payee] || 0) + s.amount;
+      } else if (s.payee === myName) {
+        // They paid me. My balance goes DOWN (They owe me less).
+        friendBalances[s.payer] = (friendBalances[s.payer] || 0) - s.amount;
+      }
     });
 
-    const sortedBoard = Object.entries(stats).map(([name, data]) => ({ name, ...data })).sort((a, b) => b.net - a.net);
-    setLeaderboard(sortedBoard);
-  }, [bets, settlements]);
+    // Format and filter out exactly zero balances
+    const formattedBalances = Object.entries(friendBalances)
+      .map(([name, balance]) => ({ name, balance }))
+      .filter(b => b.balance !== 0)
+      .sort((a, b) => b.balance - a.balance);
+
+    setBalances(formattedBalances);
+  }, [bets, settlements, user]);
 
   const handleGoogleLogin = async () => {
     await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } });
@@ -142,10 +162,13 @@ export default function StakeTrackApp() {
   useEffect(() => { document.documentElement.setAttribute('data-theme', theme); }, [theme]);
   const toggleTheme = () => setTheme(theme === 'dark' ? 'light' : 'dark');
 
-  // KPI Calculations
   const pendingCount = bets.filter(b => b.status === 'pending').length;
   const wonCount = bets.filter(b => b.winner === user?.user_metadata?.full_name).length;
   const totalPot = bets.reduce((sum, b) => sum + (b.stake * (b.participants?.length || 0)), 0);
+
+  // Split balances into owed and owing
+  const youAreOwed = balances.filter(b => b.balance > 0);
+  const youOwe = balances.filter(b => b.balance < 0);
 
   if (loading) return <div className="p-8 text-center">Loading app...</div>;
   if (!user) {
@@ -169,7 +192,7 @@ export default function StakeTrackApp() {
           <div className="nav-section-label">Main</div>
           <button className={`nav-item ${activeView === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveView('dashboard')}><LayoutDashboard size={16} /> Dashboard</button>
           <button className={`nav-item ${activeView === 'bets' ? 'active' : ''}`} onClick={() => setActiveView('bets')}><List size={16} /> All Bets <span className="nav-badge">{pendingCount}</span></button>
-          <button className={`nav-item ${activeView === 'leaderboard' ? 'active' : ''}`} onClick={() => setActiveView('leaderboard')}><Trophy size={16} /> Leaderboard</button>
+          <button className={`nav-item ${activeView === 'settlements' ? 'active' : ''}`} onClick={() => setActiveView('settlements')}><CreditCard size={16} /> Settlements</button>
         </nav>
         <div className="sidebar-footer">
           <div className="user-card flex flex-col items-start w-full">
@@ -255,45 +278,59 @@ export default function StakeTrackApp() {
             </>
           )}
 
-          {/* LEADERBOARD VIEW */}
-          {activeView === 'leaderboard' && (
-            <>
-              <div className="section-header"><div className="section-title">Net P&L Standings</div></div>
-              <div className="lb-list bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl overflow-hidden shadow-sm">
-                {leaderboard.length === 0 ? (
-                  <div className="p-8 text-center text-[var(--color-text-muted)]">Resolve a bet to see standings.</div>
-                ) : (
-                  leaderboard.map((player, i) => (
-                    <div key={player.name} className="lb-item flex items-center gap-4 p-4 border-b border-[var(--color-divider)] hover:bg-[var(--color-surface-offset)] transition-colors">
-                      <div className={`lb-rank w-6 text-center font-bold ${i === 0 ? 'text-[var(--color-gold)] text-lg' : i === 1 ? 'text-gray-400 text-lg' : i === 2 ? 'text-amber-700 text-lg' : 'text-[var(--color-text-faint)] text-xs'}`}>
-                        {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
+          {/* SETTLEMENTS VIEW (Replaces Leaderboard) */}
+          {activeView === 'settlements' && (
+            <div className="flex flex-col gap-8">
+
+              {/* You Are Owed Section */}
+              <div>
+                <div className="section-header"><div className="section-title text-[var(--color-success)]">You are owed</div></div>
+                <div className="lb-list bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl overflow-hidden shadow-sm">
+                  {youAreOwed.length === 0 ? (
+                    <div className="p-6 text-center text-[var(--color-text-muted)]">Nobody owes you money.</div>
+                  ) : (
+                    youAreOwed.map(b => (
+                      <div key={b.name} className="lb-item flex items-center justify-between p-4 border-b border-[var(--color-divider)]">
+                        <div className="flex items-center gap-4">
+                          <div className="avatar w-9 h-9 text-xs">{b.name.charAt(0)}</div>
+                          <div className="font-medium">{b.name}</div>
+                        </div>
+                        <div className="font-bold text-lg text-[var(--color-success)]">₹{b.balance}</div>
                       </div>
-                      <div className="avatar w-9 h-9 text-xs">{player.name.charAt(0)}</div>
-                      <div className="lb-name flex-1 font-medium">{player.name}</div>
+                    ))
+                  )}
+                </div>
+              </div>
 
-                      {/* Settlement Action (Only show if this is NOT the current user, and the current user owes them money) */}
-                      {player.name !== user?.user_metadata?.full_name && player.net > 0 && (
-                        <button
-                          onClick={() => { setSettleData({ payee: player.name, amount: '' }); setIsSettleModalOpen(true); }}
-                          className="mr-4 px-3 py-1.5 text-xs font-semibold rounded-md border border-[var(--color-border)] hover:bg-[var(--color-primary)] hover:text-white transition-colors"
-                        >
-                          Pay {player.name}
-                        </button>
-                      )}
-
-                      <div className="lb-stats flex gap-6 text-right">
-                        <div>
-                          <div className={`lb-stat-val font-bold text-sm ${player.net >= 0 ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]'}`}>
-                            {player.net >= 0 ? '+' : ''}₹{Math.abs(player.net)}
-                          </div>
-                          <div className="lb-stat-lbl text-xs text-[var(--color-text-muted)]">Net P&L</div>
+              {/* You Owe Section */}
+              <div>
+                <div className="section-header"><div className="section-title text-[var(--color-error)]">You owe</div></div>
+                <div className="lb-list bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl overflow-hidden shadow-sm">
+                  {youOwe.length === 0 ? (
+                    <div className="p-6 text-center text-[var(--color-text-muted)]">You are all squared up.</div>
+                  ) : (
+                    youOwe.map(b => (
+                      <div key={b.name} className="lb-item flex items-center justify-between p-4 border-b border-[var(--color-divider)]">
+                        <div className="flex items-center gap-4">
+                          <div className="avatar w-9 h-9 text-xs">{b.name.charAt(0)}</div>
+                          <div className="font-medium">{b.name}</div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <div className="font-bold text-lg text-[var(--color-error)]">₹{Math.abs(b.balance)}</div>
+                          <button
+                            onClick={() => { setSettleData({ payee: b.name, amount: Math.abs(b.balance).toString() }); setIsSettleModalOpen(true); }}
+                            className="px-3 py-1.5 text-xs font-semibold rounded-md border border-[var(--color-border)] hover:bg-[var(--color-primary)] hover:text-white transition-colors"
+                          >
+                            Pay {b.name}
+                          </button>
                         </div>
                       </div>
-                    </div>
-                  ))
-                )}
+                    ))
+                  )}
+                </div>
               </div>
-            </>
+
+            </div>
           )}
 
         </main>
